@@ -51,8 +51,10 @@ GridFlo/
 ├── parser.py         # Builds and type-checks the cell graph
 ├── interpreter.py    # Executes the cell graph
 ├── hello.gf          # Simple example program
+├── grade.gf          # Simple comparison example
+├── average.gf        # Collect and reduce example
+├── shout.gf          # Plate/sub-graph example
 ├── fizzbuzz.gf       # Official FizzBuzz example
-├── test_gridflow.py  # Unit tests
 ├── CHANGES.md        # Human-readable change notes
 └── CLAUDE.md         # Agent/developer guidance
 ```
@@ -101,6 +103,18 @@ Run with verbose execution output:
 python gridflow.py run fizzbuzz.gf n=15 --verbose
 ```
 
+## Saved Example Programs
+
+The repository includes five runnable `.gf` example programs:
+
+| File | Purpose | Example command |
+|---|---|---|
+| `hello.gf` | Simple string pipeline and two-input concatenation | `python gridflow.py run hello.gf` |
+| `grade.gf` | Simple comparison program | `python gridflow.py run grade.gf score=75` |
+| `average.gf` | Collects two inputs and reduces them with `(avg)` | `python gridflow.py run average.gf a=40 b=60` |
+| `shout.gf` | Uses a reusable `plate` to trim, uppercase, and add `!` | `python gridflow.py run shout.gf message=" hello "` |
+| `fizzbuzz.gf` | Complex stream/map FizzBuzz program | `python gridflow.py run fizzbuzz.gf n=15` |
+
 ## Command Reference
 
 ### Run A Program
@@ -113,6 +127,9 @@ Examples:
 
 ```bash
 python gridflow.py run hello.gf
+python gridflow.py run grade.gf score=75
+python gridflow.py run average.gf a=40 b=60
+python gridflow.py run shout.gf message=" hello "
 python gridflow.py run fizzbuzz.gf n=15
 python gridflow.py run my_program.gf name=Mateo score=75
 ```
@@ -136,16 +153,10 @@ python gridflow.py demo
 
 This runs the sample programs embedded in `gridflow.py`.
 
-### Run Tests
-
-```bash
-python -m unittest
-```
-
 Run syntax checks for the Python files:
 
 ```bash
-python -m py_compile gridflow.py lexer.py parser.py interpreter.py test_gridflow.py
+python -m py_compile gridflow.py lexer.py parser.py interpreter.py
 ```
 
 ## Core Idea
@@ -602,32 +613,19 @@ The interpreter also supports:
 - Internal value tracking so predicates can test transformed values while gates
   still route the original value.
 
-## Testing
-
-Run the test suite:
-
-```bash
-python -m unittest
-```
-
-The current tests cover:
-
-- Official FizzBuzz examples for `n=3`, `n=5`, and `n=15`.
-- `[range]`.
-- `[map:<plate>]`.
-- `[const:<text>]`.
-- Missing plate validation for `[map:<plate>]`.
-
 ## Development Workflow
 
 Recommended checks before committing changes:
 
 ```bash
-python -m unittest
+python gridflow.py run hello.gf
+python gridflow.py run grade.gf score=75
+python gridflow.py run average.gf a=40 b=60
+python gridflow.py run shout.gf message=" hello "
 python gridflow.py check fizzbuzz.gf
 python gridflow.py run fizzbuzz.gf n=15
 python gridflow.py demo
-python -m py_compile gridflow.py lexer.py parser.py interpreter.py test_gridflow.py
+python -m py_compile gridflow.py lexer.py parser.py interpreter.py
 ```
 
 If you change the language syntax, update:
@@ -635,7 +633,6 @@ If you change the language syntax, update:
 - `lexer.py` if new source tokens are needed.
 - `parser.py` if new cells, types, or wire rules are needed.
 - `interpreter.py` if runtime behavior changes.
-- `test_gridflow.py` with examples of the new behavior.
 - `CHANGES.md` with a short human-readable summary.
 - `README.md` so users know how to use the feature.
 
