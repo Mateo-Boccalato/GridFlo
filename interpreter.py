@@ -6,8 +6,9 @@ Latch cells anchor feedback loops across ticks.
 """
 
 from __future__ import annotations
+from dataclasses import dataclass
 from collections import deque
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set
 from parser import CellGraph, Cell, Wire
 import math
 import operator
@@ -17,8 +18,44 @@ import operator
 _EMPTY = object()
 
 
+@dataclass(frozen=True)
+class _Signal:
+    """Boolean branch result plus the value that was tested."""
+    matched: bool
+    value: Any
+
+
+@dataclass(frozen=True)
+class _TrackedValue:
+    """Current transformed value plus the original value to route through gates."""
+    current: Any
+    original: Any
+
+
 class GridFlowRuntimeError(Exception):
     pass
+
+
+def _current_value(value: Any) -> Any:
+    return value.current if isinstance(value, _TrackedValue) else value
+
+
+def _original_value(value: Any) -> Any:
+    return value.original if isinstance(value, _TrackedValue) else value
+
+
+def _public_value(value: Any) -> Any:
+    if isinstance(value, _TrackedValue):
+        return value.current
+    if isinstance(value, _Signal):
+        return value.matched
+    return value
+
+
+def _as_list(value: Any) -> List[Any]:
+    if isinstance(value, list):
+        return value
+    return [value]
 
 
 # ── Built-in cell implementations ─────────────────────────────────────────────
@@ -26,23 +63,32 @@ class GridFlowRuntimeError(Exception):
 def _apply_transform(label: str, value: Any) -> Any:
     """Apply a single-input transform cell to a value."""
     label = label.strip()
+    current = _current_value(value)
 
     # String ops
-    if label == "trim":    return str(value).strip()
-    if label == "upper":   return str(value).upper()
-    if label == "lower":   return str(value).lower()
-    if label == "str":     return str(value)
-    if label == "int":     return int(float(str(value)))
-    if label == "float":   return float(str(value))
-    if label == "len":     return len(str(value))
-    if label == "reverse": return str(value)[::-1]
-    if label == "split":   return str(value).split()
+    if label == "trim":    return str(current).strip()
+    if label == "upper":   return str(current).upper()
+    if label == "lower":   return str(current).lower()
+    if label == "str":     return str(current)
+    if label == "int":     return int(float(str(current)))
+    if label == "float":   return float(str(current))
+    if label == "len":     return len(str(current))
+    if label == "reverse": return str(current)[::-1]
+    if label == "split":   return str(current).split()
+    if label == "range":
+        limit = int(float(str(current)))
+        if limit < 0:
+            raise GridFlowRuntimeError("[range] expects a non-negative integer")
+        return list(range(1, limit + 1))
+    if label.startswith("const:"):
+        return label[len("const:"):]
 
     # Boolean ops (single input)
-    if label == "not":     return not value
+    if label == "not":     return not current
+    if label == "!":       return str(current) + "!"
 
     # Signal-producing comparisons: ?=0, ?!=0, ?>5, ?<10 etc.
-    # These output a boolean (signal) instead of scalar
+    # These output a boolean (signal) instead of value
     if label.startswith("?"):
         cmp = label[1:]  # strip the ?
         for op_sym, op_fn in [
@@ -54,7 +100,10 @@ def _apply_transform(label: str, value: Any) -> Any:
             if cmp.startswith(op_sym):
                 try:
                     operand = float(cmp[len(op_sym):])
-                    return op_fn(float(value), operand)
+                    return _Signal(
+                        op_fn(float(_current_value(value)), operand),
+                        _original_value(value),
+                    )
                 except ValueError as e:
                     raise GridFlowRuntimeError(
                         f"Signal comparison [{label}] failed on {value!r}: {e}"
@@ -73,9 +122,10 @@ def _apply_transform(label: str, value: Any) -> Any:
         if label.startswith(op_sym):
             try:
                 operand = float(label[len(op_sym):])
-                result  = op_fn(float(value), operand)
+                result  = op_fn(float(_current_value(value)), operand)
                 # Return int if whole number
-                return int(result) if result == int(result) else result
+                result = int(result) if result == int(result) else result
+                return _TrackedValue(result, _original_value(value))
             except (ValueError, ZeroDivisionError) as e:
                 raise GridFlowRuntimeError(
                     f"Transform [{label}] failed on value {value!r}: {e}"
@@ -93,7 +143,7 @@ def _apply_transform(label: str, value: Any) -> Any:
         if label.startswith(op_sym):
             try:
                 operand = float(label[len(op_sym):])
-                return op_fn(float(value), operand)
+                return op_fn(float(_current_value(value)), operand)
             except ValueError as e:
                 raise GridFlowRuntimeError(
                     f"Comparison [{label}] failed on value {value!r}: {e}"
@@ -121,6 +171,8 @@ def _apply_two_input_transform(label: str, a: Any, b: Any) -> Any:
     if fn is None:
         raise GridFlowRuntimeError(f"Unknown two-input cell: [{label}]")
     try:
+        a = _current_value(a)
+        b = _current_value(b)
         return fn(float(a) if isinstance(a, (int, float)) else a,
                   float(b) if isinstance(b, (int, float)) else b)
     except ZeroDivisionError:
@@ -132,13 +184,14 @@ def _apply_reduce(label: str, bag: list) -> Any:
     label = label.strip().lower()
     if not bag:
         raise GridFlowRuntimeError(f"({label}) received empty bag")
-    numeric = [float(x) for x in bag]
+    public_bag = [_public_value(x) for x in bag]
+    numeric = [float(_current_value(x)) for x in bag]
     if label in ("sum", "+"):      return sum(numeric)
     if label in ("max",):          return max(numeric)
     if label in ("min",):          return min(numeric)
     if label in ("count", "#"):    return len(bag)
     if label in ("avg", "mean"):   return sum(numeric) / len(numeric)
-    if label in ("join", ","):     return ", ".join(str(x) for x in bag)
+    if label in ("join", ","):     return ", ".join(str(x) for x in public_bag)
     if label in ("product", "×"):  return math.prod(numeric)
     raise GridFlowRuntimeError(f"Unknown reducer: ({label})")
 
@@ -154,6 +207,8 @@ class Interpreter:
         self._wire_values: Dict[int, Any] = {}
         # latch_cell_id → stored value
         self._latches: Dict[str, Any] = {}
+        # Cells that have already fired in this single-shot graph run
+        self._fired_cells: Set[str] = set()
 
     def run(self, inputs: Dict[str, Any], verbose: bool = False) -> Dict[str, Any]:
         """
@@ -163,6 +218,7 @@ class Interpreter:
         """
         self._wire_values = {}
         self._latches     = {}
+        self._fired_cells = set()
 
         # ── Seed input ports ──────────────────────────────────────────────
         for cell in self.graph.input_ports:
@@ -195,6 +251,11 @@ class Interpreter:
                 break
 
             for cell in ready:
+                if cell.kind == "GATE":
+                    self._fire_gate(cell)
+                    self._fired_cells.add(cell.id)
+                    continue
+
                 result = self._fire(cell)
 
                 if result is _EMPTY:
@@ -212,6 +273,9 @@ class Interpreter:
                             # Find the latch cell on this feedback path
                             self._latches[wire.target.id] = result
 
+                if not cell.is_latch:
+                    self._fired_cells.add(cell.id)
+
             # ── Tick latch values forward ─────────────────────────────────
             for cell in self.graph.cells:
                 if cell.is_latch and cell.id in self._latches:
@@ -228,6 +292,8 @@ class Interpreter:
         ready = []
         for cell in self.graph.cells:
             if cell.kind in ("INPUT_PORT", "CONSTANT"):
+                continue
+            if cell.id in self._fired_cells and not cell.is_latch:
                 continue
             if cell.kind == "OUTPUT_PORT":
                 if cell.inputs and all(
@@ -261,34 +327,17 @@ class Interpreter:
         """Execute a single cell and return its output value."""
 
         if cell.kind == "OUTPUT_PORT":
-            return self._get_wire(cell.inputs[0]) if cell.inputs else _EMPTY
+            if not cell.inputs:
+                return _EMPTY
+            return _public_value(self._get_wire(cell.inputs[0]))
 
         if cell.kind == "LATCH":
             # Latch emits its stored value
             return self._latches.get(cell.id, _EMPTY)
 
-        if cell.kind == "GATE":
-            # Gate takes one signal input and routes it:
-            # true branch (right) = the signal value itself (truthy check)
-            # false branch (down) = passes through to next condition
-            # Find the signal input
-            signal_val = None
-            pass_val   = None
-            for w in cell.inputs:
-                if w.wire_type == "signal":
-                    signal_val = self._get_wire(w)
-                else:
-                    pass_val = self._get_wire(w)
-            # If only one input, it must be the signal; pass_val = signal_val
-            if signal_val is None and cell.inputs:
-                signal_val = self._get_wire(cell.inputs[0])
-            if pass_val is None:
-                pass_val = signal_val
-            return pass_val if signal_val else None
-
         if cell.kind == "INVERT":
             val = self._get_wire(cell.inputs[0]) if cell.inputs else False
-            return not val
+            return not _current_value(val)
 
         if cell.kind == "COUNTER":
             # Count how many values have passed — track in latch storage
@@ -300,12 +349,12 @@ class Interpreter:
             # Buffer: store current value, emit previous
             val     = self._get_wire(cell.inputs[0]) if cell.inputs else None
             prev    = self._latches.get(f"delay_{cell.id}", None)
-            self._latches[f"delay_{cell.id}"] = val
+            self._latches[f"delay_{cell.id}"] = _public_value(val)
             return prev
 
         if cell.kind == "COLLECT":
             # Gather all input values into a list (bag)
-            return [self._get_wire(w) for w in cell.inputs
+            return [_public_value(self._get_wire(w)) for w in cell.inputs
                     if self._wire_values.get(id(w), _EMPTY) is not _EMPTY]
 
         if cell.kind == "REDUCE":
@@ -316,6 +365,47 @@ class Interpreter:
 
         if cell.kind == "TRANSFORM":
             label = cell.label.strip()
+
+            # Plate call — look up the plate sub-graph and run it
+            if label in self.graph.plates:
+                plate_graph  = self.graph.plates[label]
+                plate_interp = Interpreter(plate_graph, self.max_ticks)
+                plate_inputs = {}
+                for i, inp_cell in enumerate(plate_graph.input_ports):
+                    if i < len(cell.inputs):
+                        plate_inputs[inp_cell.port_name] = self._get_wire(cell.inputs[i])
+                result = plate_interp.run(plate_inputs)
+                if plate_graph.output_ports:
+                    first_out = plate_graph.output_ports[0].port_name
+                    return result.get(first_out)
+
+            if label.startswith("map:"):
+                plate_name = label[len("map:"):].strip()
+                if plate_name not in self.graph.plates:
+                    raise GridFlowRuntimeError(f"Unknown plate for map: [{plate_name}]")
+                if not cell.inputs:
+                    return []
+
+                plate_graph = self.graph.plates[plate_name]
+                if not plate_graph.input_ports:
+                    raise GridFlowRuntimeError(
+                        f"Plate '{plate_name}' used by map has no input port"
+                    )
+                if not plate_graph.output_ports:
+                    raise GridFlowRuntimeError(
+                        f"Plate '{plate_name}' used by map has no output port"
+                    )
+
+                stream = _as_list(_public_value(self._get_wire(cell.inputs[0])))
+                input_name = plate_graph.input_ports[0].port_name
+                output_name = plate_graph.output_ports[0].port_name
+                results = []
+                for item in stream:
+                    plate_interp = Interpreter(plate_graph, self.max_ticks)
+                    plate_outputs = plate_interp.run({input_name: item})
+                    results.append(plate_outputs.get(output_name))
+                return results
+
             # Two-input arithmetic/logic cells: [+] [-] [×] etc.
             if label in ("+", "-", "×", "*", "÷", "/", "%", "^",
                          "=", "==", "≠", "!=", ">", "<", "≥", "≤",
@@ -332,20 +422,39 @@ class Interpreter:
             val = self._get_wire(cell.inputs[0]) if cell.inputs else None
             return _apply_transform(label, val)
 
-        # Plate call — look up the plate sub-graph and run it
-        if cell.kind == "TRANSFORM" and cell.label in self.graph.plates:
-            plate_graph  = self.graph.plates[cell.label]
-            plate_interp = Interpreter(plate_graph, self.max_ticks)
-            plate_inputs = {}
-            for i, inp_cell in enumerate(plate_graph.input_ports):
-                if i < len(cell.inputs):
-                    plate_inputs[inp_cell.port_name] = self._get_wire(cell.inputs[i])
-            result = plate_interp.run(plate_inputs)
-            if plate_graph.output_ports:
-                first_out = plate_graph.output_ports[0].port_name
-                return result.get(first_out)
-
         return _EMPTY
+
+    def _fire_gate(self, cell: Cell) -> bool:
+        """Route a gate's value to the right branch when true, down when false."""
+        signal_val = None
+        pass_val = None
+
+        for wire in cell.inputs:
+            value = self._get_wire(wire)
+            if wire.wire_type == "signal":
+                signal_val = value
+            else:
+                pass_val = value
+
+        if signal_val is None and cell.inputs:
+            signal_val = self._get_wire(cell.inputs[0])
+
+        if isinstance(signal_val, _Signal):
+            matched = signal_val.matched
+            if pass_val is None:
+                pass_val = signal_val.value
+        else:
+            matched = bool(signal_val)
+            if pass_val is None:
+                pass_val = signal_val
+
+        branch = "right" if matched else "down"
+        fired = False
+        for wire in cell.outputs:
+            if wire.direction == branch:
+                self._set_wire(wire, pass_val)
+                fired = True
+        return fired
 
     # ── Wire helpers ───────────────────────────────────────────────────────
 

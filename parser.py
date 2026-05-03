@@ -13,7 +13,7 @@ from lexer import Token, TokenType
 
 # ── Data types ─────────────────────────────────────────────────────────────────
 
-VALID_TYPES = {"scalar", "stream", "signal", "bag"}
+VALID_TYPES = {"value", "stream", "signal", "bag"}
 
 
 class GridFlowTypeError(Exception):
@@ -47,8 +47,9 @@ class Cell:
 class Wire:
     source:    Cell
     target:    Cell
-    wire_type: str = "scalar"   # inferred or declared
+    wire_type: str = "value"   # inferred or declared
     is_feedback: bool = False   # True for [@] return edges
+    direction: Optional[str] = None  # right/down branch from the source cell
 
 
 @dataclass
@@ -171,33 +172,45 @@ class Parser:
 
         for cell in self.graph.cells:
             # ── Rightward from right edge ──────────────────────────────────
-            start_col = self._cell_right_edge(cell)
-            target = self._follow_wire(tmap, cell.row, start_col, "right")
-            if target and target.id != cell.id:
-                edge_key = (cell.id, target.id)
-                if edge_key not in visited_edges:
-                    wire = Wire(source=cell, target=target)
-                    self.graph.wires.append(wire)
-                    cell.outputs.append(wire)
-                    target.inputs.append(wire)
-                    visited_edges.add(edge_key)
+            start_cols = [self._cell_right_edge(cell)]
+            if cell.kind == "CONSTANT":
+                unquoted_edge = cell.col + len(cell.label) + 1
+                if unquoted_edge not in start_cols:
+                    start_cols.append(unquoted_edge)
 
-            # ── Downward — only follow if there's an actual │ wire below ──
-            tmap_check = self._token_map()
-            below_tok = tmap_check.get((cell.row + 1, cell.col))
-            if below_tok and below_tok.type in (TokenType.WIRE_V,
-                                                 TokenType.CORNER,
-                                                 TokenType.JUNCTION,
-                                                 TokenType.TAP):
-                target = self._follow_wire(tmap_check, cell.row + 1, cell.col, "down")
+            for start_col in start_cols:
+                target = self._follow_wire(tmap, cell.row, start_col, "right")
                 if target and target.id != cell.id:
                     edge_key = (cell.id, target.id)
                     if edge_key not in visited_edges:
-                        wire = Wire(source=cell, target=target)
+                        wire = Wire(source=cell, target=target, direction="right")
                         self.graph.wires.append(wire)
                         cell.outputs.append(wire)
                         target.inputs.append(wire)
                         visited_edges.add(edge_key)
+
+            # ── Downward — only follow if there's an actual │ wire below ──
+            tmap_check = self._token_map()
+            down_cols = [cell.col]
+            right_edge = self._cell_right_edge(cell)
+            if right_edge != cell.col:
+                down_cols.append(right_edge)
+
+            for down_col in down_cols:
+                below_tok = tmap_check.get((cell.row + 1, down_col))
+                if below_tok and below_tok.type in (TokenType.WIRE_V,
+                                                     TokenType.CORNER,
+                                                     TokenType.JUNCTION,
+                                                     TokenType.TAP):
+                    target = self._follow_wire(tmap_check, cell.row + 1, down_col, "down")
+                    if target and target.id != cell.id:
+                        edge_key = (cell.id, target.id)
+                        if edge_key not in visited_edges:
+                            wire = Wire(source=cell, target=target, direction="down")
+                            self.graph.wires.append(wire)
+                            cell.outputs.append(wire)
+                            target.inputs.append(wire)
+                            visited_edges.add(edge_key)
 
     def _follow_wire(self, tmap, row, col, direction, depth=0) -> Optional[Cell]:
         """
@@ -268,39 +281,41 @@ class Parser:
 
     # Rules:
     #   input ports declare their type
-    #   types propagate forward through transform cells (scalar→scalar)
-    #   {collect} : scalar/stream → bag
-    #   (reduce)  : bag → scalar
+    #   types propagate forward through transform cells (value→value)
+    #   {collect} : value/stream → bag
+    #   (reduce)  : bag → value
     #   ?  gate   : first input is signal, second passes through unchanged
     #   [@] latch : preserves type of its input wire
 
     _TRANSFORM_IO = {
         # label patterns → (accepted_type, output_type)
-        "trim":    ("scalar", "scalar"),
-        "upper":   ("scalar", "scalar"),
-        "lower":   ("scalar", "scalar"),
-        "str":     ("scalar", "scalar"),
-        "int":     ("scalar", "scalar"),
-        "float":   ("scalar", "scalar"),
-        "len":     ("scalar", "scalar"),
-        "split":   ("scalar", "stream"),
-        "join":    ("bag",    "scalar"),
-        "reverse": ("scalar", "scalar"),
-        "sum":     ("bag",    "scalar"),
-        "max":     ("bag",    "scalar"),
-        "min":     ("bag",    "scalar"),
-        "count":   ("bag",    "scalar"),
+        "trim":    ("value", "value"),
+        "upper":   ("value", "value"),
+        "lower":   ("value", "value"),
+        "str":     ("value", "value"),
+        "int":     ("value", "value"),
+        "float":   ("value", "value"),
+        "len":     ("value", "value"),
+        "range":   ("value", "stream"),
+        "split":   ("value", "stream"),
+        "join":    ("bag",   "value"),
+        "reverse": ("value", "value"),
+        "sum":     ("bag",   "value"),
+        "max":     ("bag",   "value"),
+        "min":     ("bag",   "value"),
+        "count":   ("bag",   "value"),
+        "!":       ("value", "value"),
         "not":     ("signal", "signal"),
         "and":     ("signal", "signal"),
         "or":      ("signal", "signal"),
-        # Signal-producing comparisons (scalar → signal, feed into ? gate)
-        "?=0":  ("scalar", "signal"),
-        "?=":   ("scalar", "signal"),
-        "?!=":  ("scalar", "signal"),
-        "?>":   ("scalar", "signal"),
-        "?<":   ("scalar", "signal"),
-        "?>=":  ("scalar", "signal"),
-        "?<=":  ("scalar", "signal"),
+        # Signal-producing comparisons (value → signal, feed into ? gate)
+        "?=0":  ("value", "signal"),
+        "?=":   ("value", "signal"),
+        "?!=":  ("value", "signal"),
+        "?>":   ("value", "signal"),
+        "?<":   ("value", "signal"),
+        "?>=":  ("value", "signal"),
+        "?<=":  ("value", "signal"),
     }
 
     def _infer_wire_type(self, wire: Wire) -> str:
@@ -308,48 +323,53 @@ class Parser:
 
         # Input port — type is declared
         if src.kind == "INPUT_PORT":
-            return src.port_type or "scalar"
+            return src.port_type or "value"
 
         # Latch — preserve type of its input
         if src.is_latch:
             if src.inputs:
                 return src.inputs[0].wire_type
-            return "scalar"
+            return "value"
 
         # Collect — always outputs bag
         if src.kind == "COLLECT":
             return "bag"
 
-        # Reduce — always outputs scalar
+        # Reduce — always outputs value
         if src.kind == "REDUCE":
-            return "scalar"
+            return "value"
 
-        # Constant — scalar
+        # Constant — value
         if src.kind == "CONSTANT":
-            return "scalar"
+            return "value"
 
         # Gate ? — output type mirrors value input type (not signal input)
         if src.kind == "GATE":
             for inp in src.inputs:
                 if inp.wire_type != "signal":
                     return inp.wire_type
-            return "scalar"
+            return "value"
 
-        # Transform cell — look up in table, or default scalar→scalar
+        # Transform cell — look up in table, or default value→value
         if src.kind == "TRANSFORM":
+            label = src.label.lower()
+            if label.startswith("map:"):
+                return "stream"
+            if label.startswith("const:"):
+                return "value"
             rule = self._TRANSFORM_IO.get(src.label.lower())
             if rule:
                 return rule[1]
             # Signal-producing comparisons: labels starting with ?
             if src.label.startswith("?"):
                 return "signal"
-            # Arithmetic operators: scalar → scalar
+            # Arithmetic operators: value → value
             if any(op in src.label for op in ["+", "-", "×", "÷", "%", "^",
                                                "=", "≠", ">", "<", "≥", "≤"]):
-                return "scalar"
-            return "scalar"
+                return "value"
+            return "value"
 
-        return "scalar"
+        return "value"
 
     def _type_check(self):
         """
@@ -391,9 +411,9 @@ class Parser:
 
         if cell.kind == "COLLECT":
             for w in cell.inputs:
-                if w.wire_type not in ("scalar", "stream"):
+                if w.wire_type not in ("value", "stream"):
                     raise GridFlowTypeError(
-                        f"Line {cell.row}: {{collect}} expects scalar/stream, "
+                        f"Line {cell.row}: {{collect}} expects value/stream, "
                         f"got '{w.wire_type}' from '{w.source.label}'"
                     )
 
@@ -415,7 +435,32 @@ class Parser:
                 )
 
         elif cell.kind == "TRANSFORM":
-            rule = self._TRANSFORM_IO.get(cell.label.lower())
+            raw_label = cell.label
+            label = raw_label.lower()
+            if label.startswith("map:"):
+                for w in cell.inputs:
+                    if w.wire_type != "stream":
+                        raise GridFlowTypeError(
+                            f"Line {cell.row}: [{cell.label}] expects "
+                            f"'stream', got '{w.wire_type}'"
+                        )
+                plate_name = raw_label[len("map:"):].strip()
+                if plate_name not in self.graph.plates:
+                    raise GridFlowTypeError(
+                        f"Line {cell.row}: [{cell.label}] references "
+                        f"unknown plate '{plate_name}'"
+                    )
+                return
+            if label.startswith("const:"):
+                for w in cell.inputs:
+                    if w.wire_type != "value":
+                        raise GridFlowTypeError(
+                            f"Line {cell.row}: [{cell.label}] expects "
+                            f"'value', got '{w.wire_type}'"
+                        )
+                return
+
+            rule = self._TRANSFORM_IO.get(label)
             if rule:
                 expected_in, _ = rule
                 for w in cell.inputs:

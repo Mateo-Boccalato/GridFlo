@@ -58,25 +58,25 @@ def run_source(source: str, inputs: dict, verbose: bool = False, label: str = "<
 # ── Sample programs ────────────────────────────────────────────────────────────
 
 SAMPLE_1 = """
-name:scalar >──[trim]──[upper]──< result:scalar
+name:value >──[trim]──[upper]──< result:value
 """
 
 SAMPLE_2 = """
-score:scalar >──[≥60]──< grade:scalar
+score:value >──[≥60]──< grade:value
 """
 
 SAMPLE_3 = """
-a:scalar >──────────────┐
-                        {collect}──(avg)──< average:scalar
-b:scalar >──────────────┘
+a:value >──────────────┐
+                        {collect}──(avg)──< average:value
+b:value >──────────────┘
 """
 
 SAMPLE_4_PIPELINE = """
 plate shout:
-    text:scalar >──[trim]──[upper]──[!]──< out:scalar
+    text:value >──[trim]──[upper]──[!]──< out:value
 end
 
-message:scalar >──[shout]──< result:scalar
+message:value >──[shout]──< result:value
 """
 
 # ── CLI ────────────────────────────────────────────────────────────────────────

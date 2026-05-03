@@ -47,7 +47,7 @@ class Token:
     col:     int
     # For typed ports, parsed out of "name:type"
     port_name: Optional[str] = None
-    port_type: Optional[str] = None  # scalar | stream | signal | bag
+    port_type: Optional[str] = None  # value | stream | signal | bag
 
 
 # ── Wire characters ────────────────────────────────────────────────────────────
@@ -59,12 +59,12 @@ TAP_CHARS      = set("·.\u00B7")
 
 
 def _parse_port_label(raw: str):
-    """Split 'name:type' into (name, type). Type defaults to 'scalar'."""
+    """Split 'name:type' into (name, type). Type defaults to 'value'."""
     raw = raw.strip()
     if ":" in raw:
         name, ptype = raw.split(":", 1)
         return name.strip(), ptype.strip().lower()
-    return raw, "scalar"
+    return raw, "value"
 
 
 def lex(source: str) -> List[Token]:

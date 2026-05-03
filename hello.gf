@@ -1,4 +1,4 @@
 *"grid"──[upper]──┐
-                  [+]──[trim]──< output:scalar
+                  [+]──[trim]──< output:value
 *"flo"──[upper]──┘
 
