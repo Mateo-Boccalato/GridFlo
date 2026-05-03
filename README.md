@@ -135,6 +135,9 @@ http://localhost:8000/landing%20page/
 
 The repository includes five runnable `.gf` example programs:
 
+When running one of these from the repository root, include the `sample programs/`
+folder in the path, for example `python gridflow.py run "sample programs/fizzbuzz.gf" n=20`.
+
 | File | Purpose | Example command |
 |---|---|---|
 | `sample programs/hello.gf` | Simple string pipeline and two-input concatenation | `python gridflow.py run "sample programs/hello.gf"` |

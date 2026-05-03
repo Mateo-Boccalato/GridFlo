@@ -48,6 +48,7 @@ class Token:
     # For typed ports, parsed out of "name:type"
     port_name: Optional[str] = None
     port_type: Optional[str] = None  # value | stream | signal | bag
+    end_col:   Optional[int] = None  # exclusive end column in the source grid
 
 
 # ── Wire characters ────────────────────────────────────────────────────────────
@@ -82,13 +83,14 @@ def lex(source: str) -> List[Token]:
         # ── Plate definition header ────────────────────────────────────────
         m = re.match(r"^\s*plate\s+(\w+)\s*:", line)
         if m:
-            tokens.append(Token(TokenType.PLATE_DEF, m.group(1), i, m.start(), m.group(1)))
+            tokens.append(Token(TokenType.PLATE_DEF, m.group(1), i, m.start(), m.group(1),
+                                end_col=m.end()))
             i += 1
             continue
 
         # ── Plate end ──────────────────────────────────────────────────────
         if re.match(r"^\s*end\s*$", line):
-            tokens.append(Token(TokenType.PLATE_END, "end", i, 0))
+            tokens.append(Token(TokenType.PLATE_END, "end", i, 0, end_col=len(line)))
             i += 1
             continue
 
@@ -110,6 +112,7 @@ def lex(source: str) -> List[Token]:
                 t = Token(TokenType.INPUT_PORT, raw, i, j)
                 t.port_name = name
                 t.port_type = ptype
+                t.end_col = j + len(m.group(0))
                 tokens.append(t)
                 j += len(m.group(0))
                 continue
@@ -124,6 +127,7 @@ def lex(source: str) -> List[Token]:
                     t = Token(TokenType.OUTPUT_PORT, raw, i, j)
                     t.port_name = name
                     t.port_type = ptype
+                    t.end_col = j + 1 + (len(line[j+1:]) - len(rest)) + len(m.group(0))
                     tokens.append(t)
                     j += 1 + (len(line[j+1:]) - len(rest)) + len(m.group(0))
                     continue
@@ -134,7 +138,7 @@ def lex(source: str) -> List[Token]:
                 if end != -1:
                     label = line[j+1:end]
                     ttype = TokenType.LATCH if label == "@" else TokenType.TRANSFORM
-                    tokens.append(Token(ttype, label, i, j))
+                    tokens.append(Token(ttype, label, i, j, end_col=end + 1))
                     j = end + 1
                     continue
 
@@ -142,7 +146,8 @@ def lex(source: str) -> List[Token]:
             if ch == "{":
                 end = line.find("}", j)
                 if end != -1:
-                    tokens.append(Token(TokenType.COLLECT, line[j+1:end], i, j))
+                    tokens.append(Token(TokenType.COLLECT, line[j+1:end], i, j,
+                                        end_col=end + 1))
                     j = end + 1
                     continue
 
@@ -150,7 +155,8 @@ def lex(source: str) -> List[Token]:
             if ch == "(":
                 end = line.find(")", j)
                 if end != -1:
-                    tokens.append(Token(TokenType.REDUCE, line[j+1:end], i, j))
+                    tokens.append(Token(TokenType.REDUCE, line[j+1:end], i, j,
+                                        end_col=end + 1))
                     j = end + 1
                     continue
 
@@ -159,37 +165,39 @@ def lex(source: str) -> List[Token]:
                 # Quoted string constant: *"hello world"
                 m = re.match(r'\*"([^"]*)"', line[j:])
                 if m:
-                    tokens.append(Token(TokenType.CONSTANT, m.group(1), i, j))
+                    tokens.append(Token(TokenType.CONSTANT, m.group(1), i, j,
+                                        end_col=j + len(m.group(0))))
                     j += len(m.group(0))
                     continue
                 # Unquoted constant: *42 or *true
                 m = re.match(r"\*([A-Za-z0-9_.]+)", line[j:])
                 if m:
-                    tokens.append(Token(TokenType.CONSTANT, m.group(1), i, j))
+                    tokens.append(Token(TokenType.CONSTANT, m.group(1), i, j,
+                                        end_col=j + len(m.group(0))))
                     j += len(m.group(0))
                     continue
 
             # ── Single-char control cells ─────────────────────────────────
             if ch == "?":
-                tokens.append(Token(TokenType.GATE,    "?", i, j)); j += 1; continue
+                tokens.append(Token(TokenType.GATE,    "?", i, j, end_col=j + 1)); j += 1; continue
             if ch == "!":
-                tokens.append(Token(TokenType.INVERT,  "!", i, j)); j += 1; continue
+                tokens.append(Token(TokenType.INVERT,  "!", i, j, end_col=j + 1)); j += 1; continue
             if ch == "#":
-                tokens.append(Token(TokenType.COUNTER, "#", i, j)); j += 1; continue
+                tokens.append(Token(TokenType.COUNTER, "#", i, j, end_col=j + 1)); j += 1; continue
             if ch == "~":
-                tokens.append(Token(TokenType.DELAY,   "~", i, j)); j += 1; continue
+                tokens.append(Token(TokenType.DELAY,   "~", i, j, end_col=j + 1)); j += 1; continue
 
             # ── Wire characters ───────────────────────────────────────────
             if ch in WIRE_H_CHARS:
-                tokens.append(Token(TokenType.WIRE_H,   ch, i, j)); j += 1; continue
+                tokens.append(Token(TokenType.WIRE_H,   ch, i, j, end_col=j + 1)); j += 1; continue
             if ch in WIRE_V_CHARS:
-                tokens.append(Token(TokenType.WIRE_V,   ch, i, j)); j += 1; continue
+                tokens.append(Token(TokenType.WIRE_V,   ch, i, j, end_col=j + 1)); j += 1; continue
             if ch in CORNER_CHARS:
-                tokens.append(Token(TokenType.CORNER,   ch, i, j)); j += 1; continue
+                tokens.append(Token(TokenType.CORNER,   ch, i, j, end_col=j + 1)); j += 1; continue
             if ch in JUNCTION_CHARS:
-                tokens.append(Token(TokenType.JUNCTION, ch, i, j)); j += 1; continue
+                tokens.append(Token(TokenType.JUNCTION, ch, i, j, end_col=j + 1)); j += 1; continue
             if ch in TAP_CHARS:
-                tokens.append(Token(TokenType.TAP,      ch, i, j)); j += 1; continue
+                tokens.append(Token(TokenType.TAP,      ch, i, j, end_col=j + 1)); j += 1; continue
 
             # Unknown character — skip silently
             j += 1

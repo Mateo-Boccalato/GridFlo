@@ -14,6 +14,25 @@ from lexer import Token, TokenType
 # ── Data types ─────────────────────────────────────────────────────────────────
 
 VALID_TYPES = {"value", "stream", "signal", "bag"}
+WIRE_TOKEN_TYPES = {
+    TokenType.WIRE_H,
+    TokenType.WIRE_V,
+    TokenType.CORNER,
+    TokenType.JUNCTION,
+    TokenType.TAP,
+}
+DOWN_START_TYPES = {
+    TokenType.WIRE_V,
+    TokenType.CORNER,
+    TokenType.JUNCTION,
+    TokenType.TAP,
+}
+STEP_BY_DIRECTION = {
+    "right": (0, 1),
+    "left": (0, -1),
+    "down": (1, 0),
+    "up": (-1, 0),
+}
 
 
 class GridFlowTypeError(Exception):
@@ -30,9 +49,11 @@ class GridFlowParseError(Exception):
 class Cell:
     id:       str           # unique id, e.g. "transform_3_10"
     kind:     str           # token type name, e.g. "TRANSFORM"
+    token_type: TokenType
     label:    str           # cell label, e.g. "trim"
     row:      int
     col:      int
+    end_col:  int           # exclusive end column in the source grid
     # Populated during wiring
     inputs:   List["Wire"] = field(default_factory=list)
     outputs:  List["Wire"] = field(default_factory=list)
@@ -118,17 +139,18 @@ class Parser:
     def _build_cells(self, tokens: List[Token]):
         for tok in tokens:
             # Skip wire characters — they're structural, not cells
-            if tok.type in (TokenType.WIRE_H, TokenType.WIRE_V,
-                            TokenType.CORNER, TokenType.JUNCTION):
+            if tok.type in WIRE_TOKEN_TYPES:
                 continue
 
             cell_id = f"{tok.type.name.lower()}_{tok.row}_{tok.col}"
             cell = Cell(
                 id        = cell_id,
                 kind      = tok.type.name,
+                token_type= tok.type,
                 label     = tok.label,
                 row       = tok.row,
                 col       = tok.col,
+                end_col   = tok.end_col or tok.col + len(tok.label) + 1,
                 is_latch  = (tok.type == TokenType.LATCH),
                 port_name = tok.port_name,
                 port_type = tok.port_type,
@@ -153,119 +175,90 @@ class Parser:
 
     def _cell_right_edge(self, cell: Cell) -> int:
         """Return the column index just past this cell's rightmost character."""
-        # Brackets add 2 chars: [label] → col + 1 + len(label) + 1
-        if cell.kind in ("TRANSFORM", "COLLECT", "REDUCE", "LATCH"):
-            return cell.col + len(cell.label) + 2
-        # Input port: "name:type >" — the > is at col of '>'
-        # The lexer sets col to start of the label; '>' follows the label + space
-        if cell.kind == "INPUT_PORT":
-            return cell.col + len(cell.label) + 2   # label + " >"
-        # Constant: *"label" → col + 1 (asterisk) + 1 (quote) + len + 1 (quote)
-        if cell.kind == "CONSTANT":
-            return cell.col + len(cell.label) + 3
-        # Single-char cells: ?, !, #, ~, ·
-        return cell.col + 1
+        return cell.end_col
 
     def _trace_wires(self):
         tmap = self._token_map()
         visited_edges: Set[Tuple[str,str]] = set()
 
         for cell in self.graph.cells:
-            # ── Rightward from right edge ──────────────────────────────────
-            start_cols = [self._cell_right_edge(cell)]
-            if cell.kind == "CONSTANT":
-                unquoted_edge = cell.col + len(cell.label) + 1
-                if unquoted_edge not in start_cols:
-                    start_cols.append(unquoted_edge)
-
-            for start_col in start_cols:
-                target = self._follow_wire(tmap, cell.row, start_col, "right")
-                if target and target.id != cell.id:
-                    edge_key = (cell.id, target.id)
-                    if edge_key not in visited_edges:
-                        wire = Wire(source=cell, target=target, direction="right")
-                        self.graph.wires.append(wire)
-                        cell.outputs.append(wire)
-                        target.inputs.append(wire)
-                        visited_edges.add(edge_key)
+            # Rightward from the first column after the cell text.
+            target = self._follow_wire(tmap, cell.row, self._cell_right_edge(cell), "right")
+            self._connect_once(cell, target, "right", visited_edges)
 
             # ── Downward — only follow if there's an actual │ wire below ──
-            tmap_check = self._token_map()
             down_cols = [cell.col]
             right_edge = self._cell_right_edge(cell)
             if right_edge != cell.col:
                 down_cols.append(right_edge)
 
             for down_col in down_cols:
-                below_tok = tmap_check.get((cell.row + 1, down_col))
-                if below_tok and below_tok.type in (TokenType.WIRE_V,
-                                                     TokenType.CORNER,
-                                                     TokenType.JUNCTION,
-                                                     TokenType.TAP):
-                    target = self._follow_wire(tmap_check, cell.row + 1, down_col, "down")
-                    if target and target.id != cell.id:
-                        edge_key = (cell.id, target.id)
-                        if edge_key not in visited_edges:
-                            wire = Wire(source=cell, target=target, direction="down")
-                            self.graph.wires.append(wire)
-                            cell.outputs.append(wire)
-                            target.inputs.append(wire)
-                            visited_edges.add(edge_key)
+                below_tok = tmap.get((cell.row + 1, down_col))
+                if below_tok and below_tok.type in DOWN_START_TYPES:
+                    target = self._follow_wire(tmap, cell.row + 1, down_col, "down")
+                    self._connect_once(cell, target, "down", visited_edges)
 
-    def _follow_wire(self, tmap, row, col, direction, depth=0) -> Optional[Cell]:
+    def _connect_once(
+        self,
+        source: Cell,
+        target: Optional[Cell],
+        direction: str,
+        visited_edges: Set[Tuple[str, str]],
+    ):
+        if target is None or target.id == source.id:
+            return
+        edge_key = (source.id, target.id)
+        if edge_key in visited_edges:
+            return
+
+        wire = Wire(source=source, target=target, direction=direction)
+        self.graph.wires.append(wire)
+        source.outputs.append(wire)
+        target.inputs.append(wire)
+        visited_edges.add(edge_key)
+
+    def _follow_wire(self, tmap, row, col, direction) -> Optional[Cell]:
         """
         Walk along wire/corner/junction tokens from (row, col).
         Returns the first Cell encountered, or None.
         """
-        if depth > 300 or row < 0 or col < 0:
-            return None
+        candidates = [(row, col, direction)]
+        steps_left = 300
 
-        tok = tmap.get((row, col))
-        if tok is None:
-            return None
+        while candidates and steps_left > 0:
+            row, col, direction = candidates.pop()
 
-        # Hit a real cell token — return its Cell object
-        if tok.type not in (TokenType.WIRE_H, TokenType.WIRE_V,
-                            TokenType.CORNER, TokenType.JUNCTION,
-                            TokenType.TAP):
-            return self._grid.get((row, col))
+            while steps_left > 0:
+                if row < 0 or col < 0:
+                    break
 
-        # Tap: continue in current direction (secondary downward branch
-        # is handled by the caller scanning downward independently)
-        if tok.type == TokenType.TAP:
-            nr, nc = self._step(row, col, direction)
-            return self._follow_wire(tmap, nr, nc, direction, depth + 1)
+                steps_left -= 1
+                tok = tmap.get((row, col))
+                if tok is None:
+                    break
 
-        # Junction: continue same direction
-        if tok.type == TokenType.JUNCTION:
-            nr, nc = self._step(row, col, direction)
-            return self._follow_wire(tmap, nr, nc, direction, depth + 1)
+                # Hit a real cell token — return its Cell object
+                if tok.type not in WIRE_TOKEN_TYPES:
+                    return self._grid.get((row, col))
 
-        # Corner: turn, then step in new direction
-        if tok.type == TokenType.CORNER:
-            new_dir = self._turn(tok.label, direction)
-            if new_dir is None:
-                return None
-            nr, nc = self._step(row, col, new_dir)
-            result = self._follow_wire(tmap, nr, nc, new_dir, depth + 1)
-            if result is not None:
-                return result
-            # If nothing found going up/down, also try stepping right from
-            # the turned position (handles ┘ connecting directly to adjacent cell)
-            if new_dir == "up":
-                return self._follow_wire(tmap, nr, nc + 1, "right", depth + 1)
-            if new_dir == "down":
-                return self._follow_wire(tmap, nr, nc + 1, "right", depth + 1)
-            return None
+                if tok.type == TokenType.CORNER:
+                    direction = self._turn(tok.label, direction)
+                    if direction is None:
+                        break
+                    next_row, next_col = self._step(row, col, direction)
+                    if direction in ("up", "down"):
+                        candidates.append((next_row, next_col + 1, "right"))
+                    row, col = next_row, next_col
+                    continue
 
-        # Plain wire: step in current direction
-        nr, nc = self._step(row, col, direction)
-        return self._follow_wire(tmap, nr, nc, direction, depth + 1)
+                row, col = self._step(row, col, direction)
+
+        return None
 
     @staticmethod
     def _step(row, col, direction):
-        return {"right": (row, col+1), "left": (row, col-1),
-                "down":  (row+1, col), "up":   (row-1, col)}[direction]
+        dr, dc = STEP_BY_DIRECTION[direction]
+        return row + dr, col + dc
 
     def _turn(self, corner_char: str, incoming: str) -> Optional[str]:
         """Map corner character + incoming direction to outgoing direction."""
@@ -410,20 +403,10 @@ class Parser:
             return
 
         if cell.kind == "COLLECT":
-            for w in cell.inputs:
-                if w.wire_type not in ("value", "stream"):
-                    raise GridFlowTypeError(
-                        f"Line {cell.row}: {{collect}} expects value/stream, "
-                        f"got '{w.wire_type}' from '{w.source.label}'"
-                    )
+            self._expect_input_types(cell, ("value", "stream"), "{collect}", "value/stream")
 
         elif cell.kind == "REDUCE":
-            for w in cell.inputs:
-                if w.wire_type != "bag":
-                    raise GridFlowTypeError(
-                        f"Line {cell.row}: ({cell.label}) expects bag, "
-                        f"got '{w.wire_type}' from '{w.source.label}'"
-                    )
+            self._expect_input_types(cell, ("bag",), f"({cell.label})", "bag")
 
         elif cell.kind == "GATE":
             # Gate needs at least one signal input
@@ -438,12 +421,7 @@ class Parser:
             raw_label = cell.label
             label = raw_label.lower()
             if label.startswith("map:"):
-                for w in cell.inputs:
-                    if w.wire_type != "stream":
-                        raise GridFlowTypeError(
-                            f"Line {cell.row}: [{cell.label}] expects "
-                            f"'stream', got '{w.wire_type}'"
-                        )
+                self._expect_input_types(cell, ("stream",), f"[{cell.label}]", "stream")
                 plate_name = raw_label[len("map:"):].strip()
                 if plate_name not in self.graph.plates:
                     raise GridFlowTypeError(
@@ -452,20 +430,29 @@ class Parser:
                     )
                 return
             if label.startswith("const:"):
-                for w in cell.inputs:
-                    if w.wire_type != "value":
-                        raise GridFlowTypeError(
-                            f"Line {cell.row}: [{cell.label}] expects "
-                            f"'value', got '{w.wire_type}'"
-                        )
+                self._expect_input_types(cell, ("value",), f"[{cell.label}]", "value")
                 return
 
             rule = self._TRANSFORM_IO.get(label)
             if rule:
                 expected_in, _ = rule
-                for w in cell.inputs:
-                    if w.wire_type != expected_in:
-                        raise GridFlowTypeError(
-                            f"Line {cell.row}: [{cell.label}] expects "
-                            f"'{expected_in}', got '{w.wire_type}'"
-                        )
+                self._expect_input_types(
+                    cell,
+                    (expected_in,),
+                    f"[{cell.label}]",
+                    expected_in,
+                )
+
+    @staticmethod
+    def _expect_input_types(
+        cell: Cell,
+        allowed_types: Tuple[str, ...],
+        cell_name: str,
+        expected_text: str,
+    ):
+        for wire in cell.inputs:
+            if wire.wire_type not in allowed_types:
+                raise GridFlowTypeError(
+                    f"Line {cell.row}: {cell_name} expects '{expected_text}', "
+                    f"got '{wire.wire_type}' from '{wire.source.label}'"
+                )

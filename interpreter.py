@@ -7,8 +7,7 @@ Latch cells anchor feedback loops across ticks.
 
 from __future__ import annotations
 from dataclasses import dataclass
-from collections import deque
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Callable, Dict, List, Set, Tuple
 from parser import CellGraph, Cell, Wire
 import math
 import operator
@@ -58,6 +57,67 @@ def _as_list(value: Any) -> List[Any]:
     return [value]
 
 
+def _range_from(value: Any) -> List[int]:
+    limit = int(float(str(value)))
+    if limit < 0:
+        raise GridFlowRuntimeError("[range] expects a non-negative integer")
+    return list(range(1, limit + 1))
+
+
+NAMED_TRANSFORMS: Dict[str, Callable[[Any], Any]] = {
+    "trim": lambda value: str(value).strip(),
+    "upper": lambda value: str(value).upper(),
+    "lower": lambda value: str(value).lower(),
+    "str": str,
+    "int": lambda value: int(float(str(value))),
+    "float": lambda value: float(str(value)),
+    "len": lambda value: len(str(value)),
+    "reverse": lambda value: str(value)[::-1],
+    "split": lambda value: str(value).split(),
+    "range": _range_from,
+    "not": lambda value: not value,
+    "!": lambda value: str(value) + "!",
+}
+
+SIGNAL_OPERATORS: List[Tuple[str, Callable[[Any, Any], Any]]] = [
+    (">=", operator.ge), ("<=", operator.le),
+    ("!=", operator.ne), ("==", operator.eq),
+    ("=", operator.eq),
+    (">", operator.gt), ("<", operator.lt),
+]
+
+ARITHMETIC_OPERATORS: List[Tuple[str, Callable[[Any, Any], Any]]] = [
+    ("+", operator.add),
+    ("-", operator.sub),
+    ("×", operator.mul), ("*", operator.mul),
+    ("÷", operator.truediv), ("/", operator.truediv),
+    ("%", operator.mod),
+    ("^", operator.pow),
+]
+
+COMPARISON_OPERATORS: List[Tuple[str, Callable[[Any, Any], Any]]] = [
+    ("≥", operator.ge), (">=", operator.ge),
+    ("≤", operator.le), ("<=", operator.le),
+    ("≠", operator.ne), ("!=", operator.ne),
+    ("=", operator.eq), ("==", operator.eq),
+    (">", operator.gt),
+    ("<", operator.lt),
+]
+
+TWO_INPUT_TRANSFORMS: Dict[str, Callable[[Any, Any], Any]] = {
+    "+": operator.add,   "-":  operator.sub,
+    "×": operator.mul,   "*":  operator.mul,
+    "÷": operator.truediv, "/": operator.truediv,
+    "%": operator.mod,   "^":  operator.pow,
+    "=": operator.eq,    "==": operator.eq,
+    "≠": operator.ne,    "!=": operator.ne,
+    ">": operator.gt,    "<":  operator.lt,
+    "≥": operator.ge,    "≤":  operator.le,
+    "and": lambda x, y: x and y,
+    "or":  lambda x, y: x or y,
+}
+
+
 # ── Built-in cell implementations ─────────────────────────────────────────────
 
 def _apply_transform(label: str, value: Any) -> Any:
@@ -65,38 +125,18 @@ def _apply_transform(label: str, value: Any) -> Any:
     label = label.strip()
     current = _current_value(value)
 
-    # String ops
-    if label == "trim":    return str(current).strip()
-    if label == "upper":   return str(current).upper()
-    if label == "lower":   return str(current).lower()
-    if label == "str":     return str(current)
-    if label == "int":     return int(float(str(current)))
-    if label == "float":   return float(str(current))
-    if label == "len":     return len(str(current))
-    if label == "reverse": return str(current)[::-1]
-    if label == "split":   return str(current).split()
-    if label == "range":
-        limit = int(float(str(current)))
-        if limit < 0:
-            raise GridFlowRuntimeError("[range] expects a non-negative integer")
-        return list(range(1, limit + 1))
     if label.startswith("const:"):
         return label[len("const:"):]
 
-    # Boolean ops (single input)
-    if label == "not":     return not current
-    if label == "!":       return str(current) + "!"
+    transform = NAMED_TRANSFORMS.get(label)
+    if transform is not None:
+        return transform(current)
 
     # Signal-producing comparisons: ?=0, ?!=0, ?>5, ?<10 etc.
     # These output a boolean (signal) instead of value
     if label.startswith("?"):
         cmp = label[1:]  # strip the ?
-        for op_sym, op_fn in [
-            (">=", operator.ge), ("<=", operator.le),
-            ("!=", operator.ne), ("==", operator.eq),
-            ("=",  operator.eq),
-            (">",  operator.gt), ("<",  operator.lt),
-        ]:
+        for op_sym, op_fn in SIGNAL_OPERATORS:
             if cmp.startswith(op_sym):
                 try:
                     operand = float(cmp[len(op_sym):])
@@ -111,14 +151,7 @@ def _apply_transform(label: str, value: Any) -> Any:
         raise GridFlowRuntimeError(f"Unknown signal comparison: [{label}]")
 
     # Arithmetic with literal: [+1], [×2], [÷3], [-5], [%2], [^2]
-    for op_sym, op_fn in [
-        ("+", operator.add),
-        ("-", operator.sub),
-        ("×", operator.mul), ("*", operator.mul),
-        ("÷", operator.truediv), ("/", operator.truediv),
-        ("%", operator.mod),
-        ("^", operator.pow),
-    ]:
+    for op_sym, op_fn in ARITHMETIC_OPERATORS:
         if label.startswith(op_sym):
             try:
                 operand = float(label[len(op_sym):])
@@ -132,14 +165,7 @@ def _apply_transform(label: str, value: Any) -> Any:
                 )
 
     # Comparison with literal: [=5], [≠0], [>3], [<10], [≥0], [≤100]
-    for op_sym, op_fn in [
-        ("≥", operator.ge), (">=", operator.ge),
-        ("≤", operator.le), ("<=", operator.le),
-        ("≠", operator.ne), ("!=", operator.ne),
-        ("=", operator.eq),  ("==", operator.eq),
-        (">", operator.gt),
-        ("<", operator.lt),
-    ]:
+    for op_sym, op_fn in COMPARISON_OPERATORS:
         if label.startswith(op_sym):
             try:
                 operand = float(label[len(op_sym):])
@@ -155,19 +181,7 @@ def _apply_transform(label: str, value: Any) -> Any:
 def _apply_two_input_transform(label: str, a: Any, b: Any) -> Any:
     """Apply a two-input math cell: [+] [-] [×] [÷] [%] [=] [>] etc."""
     label = label.strip()
-    ops = {
-        "+": operator.add,   "-":  operator.sub,
-        "×": operator.mul,   "*":  operator.mul,
-        "÷": operator.truediv, "/": operator.truediv,
-        "%": operator.mod,   "^":  operator.pow,
-        "=": operator.eq,    "==": operator.eq,
-        "≠": operator.ne,    "!=": operator.ne,
-        ">": operator.gt,    "<":  operator.lt,
-        "≥": operator.ge,    "≤":  operator.le,
-        "and": lambda x, y: x and y,
-        "or":  lambda x, y: x or y,
-    }
-    fn = ops.get(label)
+    fn = TWO_INPUT_TRANSFORMS.get(label)
     if fn is None:
         raise GridFlowRuntimeError(f"Unknown two-input cell: [{label}]")
     try:
@@ -243,10 +257,10 @@ class Interpreter:
         outputs: Dict[str, Any] = {}
 
         for tick in range(self.max_ticks):
-            if verbose:
-                print(f"  tick {tick}: {len(self._ready_cells())} cells ready")
-
             ready = self._ready_cells()
+            if verbose:
+                print(f"  tick {tick}: {len(ready)} cells ready")
+
             if not ready:
                 break
 
@@ -364,65 +378,65 @@ class Interpreter:
             return _apply_reduce(cell.label, bag)
 
         if cell.kind == "TRANSFORM":
-            label = cell.label.strip()
-
-            # Plate call — look up the plate sub-graph and run it
-            if label in self.graph.plates:
-                plate_graph  = self.graph.plates[label]
-                plate_interp = Interpreter(plate_graph, self.max_ticks)
-                plate_inputs = {}
-                for i, inp_cell in enumerate(plate_graph.input_ports):
-                    if i < len(cell.inputs):
-                        plate_inputs[inp_cell.port_name] = self._get_wire(cell.inputs[i])
-                result = plate_interp.run(plate_inputs)
-                if plate_graph.output_ports:
-                    first_out = plate_graph.output_ports[0].port_name
-                    return result.get(first_out)
-
-            if label.startswith("map:"):
-                plate_name = label[len("map:"):].strip()
-                if plate_name not in self.graph.plates:
-                    raise GridFlowRuntimeError(f"Unknown plate for map: [{plate_name}]")
-                if not cell.inputs:
-                    return []
-
-                plate_graph = self.graph.plates[plate_name]
-                if not plate_graph.input_ports:
-                    raise GridFlowRuntimeError(
-                        f"Plate '{plate_name}' used by map has no input port"
-                    )
-                if not plate_graph.output_ports:
-                    raise GridFlowRuntimeError(
-                        f"Plate '{plate_name}' used by map has no output port"
-                    )
-
-                stream = _as_list(_public_value(self._get_wire(cell.inputs[0])))
-                input_name = plate_graph.input_ports[0].port_name
-                output_name = plate_graph.output_ports[0].port_name
-                results = []
-                for item in stream:
-                    plate_interp = Interpreter(plate_graph, self.max_ticks)
-                    plate_outputs = plate_interp.run({input_name: item})
-                    results.append(plate_outputs.get(output_name))
-                return results
-
-            # Two-input arithmetic/logic cells: [+] [-] [×] etc.
-            if label in ("+", "-", "×", "*", "÷", "/", "%", "^",
-                         "=", "==", "≠", "!=", ">", "<", "≥", "≤",
-                         "and", "or"):
-                if len(cell.inputs) >= 2:
-                    a = self._get_wire(cell.inputs[0])
-                    b = self._get_wire(cell.inputs[1])
-                    return _apply_two_input_transform(label, a, b)
-                elif len(cell.inputs) == 1:
-                    # Single input — treat as identity
-                    return self._get_wire(cell.inputs[0])
-
-            # Single-input transform
-            val = self._get_wire(cell.inputs[0]) if cell.inputs else None
-            return _apply_transform(label, val)
+            return self._fire_transform(cell)
 
         return _EMPTY
+
+    def _fire_transform(self, cell: Cell) -> Any:
+        label = cell.label.strip()
+
+        if label in self.graph.plates:
+            return self._run_plate(label, cell.inputs)
+
+        if label.startswith("map:"):
+            return self._run_map(label[len("map:"):].strip(), cell.inputs)
+
+        if label in TWO_INPUT_TRANSFORMS:
+            if len(cell.inputs) >= 2:
+                a = self._get_wire(cell.inputs[0])
+                b = self._get_wire(cell.inputs[1])
+                return _apply_two_input_transform(label, a, b)
+            if len(cell.inputs) == 1:
+                return self._get_wire(cell.inputs[0])
+
+        val = self._get_wire(cell.inputs[0]) if cell.inputs else None
+        return _apply_transform(label, val)
+
+    def _run_plate(self, plate_name: str, inputs: List[Wire]) -> Any:
+        plate_graph = self.graph.plates[plate_name]
+        plate_inputs = {
+            inp_cell.port_name: self._get_wire(inputs[i])
+            for i, inp_cell in enumerate(plate_graph.input_ports)
+            if i < len(inputs)
+        }
+        result = Interpreter(plate_graph, self.max_ticks).run(plate_inputs)
+        if not plate_graph.output_ports:
+            return None
+        return result.get(plate_graph.output_ports[0].port_name)
+
+    def _run_map(self, plate_name: str, inputs: List[Wire]) -> List[Any]:
+        if plate_name not in self.graph.plates:
+            raise GridFlowRuntimeError(f"Unknown plate for map: [{plate_name}]")
+        if not inputs:
+            return []
+
+        plate_graph = self.graph.plates[plate_name]
+        if not plate_graph.input_ports:
+            raise GridFlowRuntimeError(
+                f"Plate '{plate_name}' used by map has no input port"
+            )
+        if not plate_graph.output_ports:
+            raise GridFlowRuntimeError(
+                f"Plate '{plate_name}' used by map has no output port"
+            )
+
+        input_name = plate_graph.input_ports[0].port_name
+        output_name = plate_graph.output_ports[0].port_name
+        results = []
+        for item in _as_list(_public_value(self._get_wire(inputs[0]))):
+            plate_outputs = Interpreter(plate_graph, self.max_ticks).run({input_name: item})
+            results.append(plate_outputs.get(output_name))
+        return results
 
     def _fire_gate(self, cell: Cell) -> bool:
         """Route a gate's value to the right branch when true, down when false."""
