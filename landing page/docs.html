@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>GridFlo Docs</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="site-header">
+    <a class="brand" href="index.html" aria-label="GridFlo home">
+      <span class="brand-mark" aria-hidden="true"></span>
+      GridFlo
+    </a>
+    <nav class="site-nav" aria-label="Main navigation">
+      <a href="index.html">Home</a>
+      <a href="#quick-start">Quick Start</a>
+      <a href="#language">Language</a>
+      <a href="#troubleshooting">Troubleshooting</a>
+    </nav>
+  </header>
+
+  <main>
+    <section class="docs-hero">
+      <p class="eyebrow">Project README</p>
+      <h1>GridFlo Docs</h1>
+      <p class="tagline">
+        A guide to writing, checking, and running two-dimensional dataflow programs in GridFlo.
+      </p>
+    </section>
+
+    <div class="docs-shell">
+      <aside class="docs-sidebar" aria-label="Documentation sections">
+        <span class="output-label">Contents</span>
+        <a href="#overview">Overview</a>
+        <a href="#quick-start">Quick Start</a>
+        <a href="#examples">Examples</a>
+        <a href="#commands">Commands</a>
+        <a href="#language">Language</a>
+        <a href="#architecture">Architecture</a>
+        <a href="#workflow">Workflow</a>
+        <a href="#troubleshooting">Troubleshooting</a>
+      </aside>
+
+      <article class="docs-content">
+        <section class="doc-section" id="overview">
+          <p class="eyebrow">Overview</p>
+          <h2>Programs as connected grids</h2>
+          <p>
+            GridFlo is a small programming language interpreter written in Python.
+            Programs are drawn as two-dimensional dataflow grids in <code>.gf</code>
+            files, then parsed and executed as graphs.
+          </p>
+          <pre class="code-window"><code>name:value &gt;──[trim]──[upper]──&lt; result:value</code></pre>
+          <p>
+            Data enters through input ports, moves along wires, passes through
+            transform cells, and exits through output ports.
+          </p>
+
+          <div class="doc-callout">
+            <strong>Project status:</strong>
+            GridFlo is an experimental interpreter and language prototype for
+            exploring 2D programming ideas.
+          </div>
+        </section>
+
+        <section class="doc-section" id="quick-start">
+          <p class="eyebrow">Quick Start</p>
+          <h2>No third-party dependencies</h2>
+          <p>Python 3.9 or newer is recommended. Check your Python version first:</p>
+          <pre class="terminal-window"><code>python --version</code></pre>
+
+          <p>Run the hello example:</p>
+          <pre class="terminal-window"><code>python gridflow.py run "sample programs/hello.gf"</code></pre>
+          <pre class="code-window"><code>output = 'GRIDFLO'</code></pre>
+
+          <p>Run FizzBuzz:</p>
+          <pre class="terminal-window"><code>python gridflow.py run "sample programs/fizzbuzz.gf" n=15</code></pre>
+          <pre class="code-window"><code>answer = ['1', '2', 'Fizz', '4', 'Buzz', 'Fizz', '7', '8', 'Fizz', 'Buzz', '11', 'Fizz', '13', '14', 'FizzBuzz']</code></pre>
+        </section>
+
+        <section class="doc-section" id="examples">
+          <p class="eyebrow">Saved Programs</p>
+          <h2>Runnable examples</h2>
+          <div class="doc-table-wrap">
+            <table class="doc-table">
+              <thead>
+                <tr>
+                  <th>File</th>
+                  <th>Purpose</th>
+                  <th>Example command</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>hello.gf</code></td>
+                  <td>Simple string pipeline and two-input concatenation.</td>
+                  <td><code>python gridflow.py run "sample programs/hello.gf"</code></td>
+                </tr>
+                <tr>
+                  <td><code>grade.gf</code></td>
+                  <td>Simple comparison program.</td>
+                  <td><code>python gridflow.py run "sample programs/grade.gf" score=75</code></td>
+                </tr>
+                <tr>
+                  <td><code>average.gf</code></td>
+                  <td>Collects two inputs and reduces them with <code>(avg)</code>.</td>
+                  <td><code>python gridflow.py run "sample programs/average.gf" a=40 b=60</code></td>
+                </tr>
+                <tr>
+                  <td><code>shout.gf</code></td>
+                  <td>Uses a reusable plate to trim, uppercase, and add <code>!</code>.</td>
+                  <td><code>python gridflow.py run "sample programs/shout.gf" message=" hello "</code></td>
+                </tr>
+                <tr>
+                  <td><code>fizzbuzz.gf</code></td>
+                  <td>Complex stream and map FizzBuzz program.</td>
+                  <td><code>python gridflow.py run "sample programs/fizzbuzz.gf" n=15</code></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="doc-section" id="commands">
+          <p class="eyebrow">Command Reference</p>
+          <h2>Run, check, and demo</h2>
+
+          <h3>Run a program</h3>
+          <pre class="terminal-window"><code>python gridflow.py run &lt;file.gf&gt; [key=value ...]</code></pre>
+          <p>
+            Input values are passed as <code>key=value</code> pairs. The CLI tries
+            to convert numeric inputs to <code>int</code> or <code>float</code>;
+            otherwise the value is passed as a string.
+          </p>
+
+          <h3>Check a program</h3>
+          <pre class="terminal-window"><code>python gridflow.py check &lt;file.gf&gt;</code></pre>
+          <p>This lexes, parses, wires, and type-checks the program without executing it.</p>
+
+          <h3>Run demos and syntax checks</h3>
+          <pre class="terminal-window"><code>python gridflow.py demo
+python -m py_compile gridflow.py lexer.py parser.py interpreter.py</code></pre>
+        </section>
+
+        <section class="doc-section" id="language">
+          <p class="eyebrow">Language Reference</p>
+          <h2>Cells, wires, types, and transforms</h2>
+
+          <h3>Core idea</h3>
+          <pre class="code-window"><code>input:value &gt;──[transform]──&lt; output:value</code></pre>
+          <p>
+            Each cell has a position in the 2D source grid. The parser uses those
+            positions to trace wire characters and build a directed graph.
+          </p>
+
+          <h3>Supported wire types</h3>
+          <ul class="doc-list">
+            <li><code>value</code>: a single value, such as a number, string, or boolean.</li>
+            <li><code>stream</code>: a sequence/list of values, such as <code>[1, 2, 3]</code>.</li>
+            <li><code>signal</code>: a boolean condition, usually produced by transforms like <code>[?=0]</code>.</li>
+            <li><code>bag</code>: a collected group of values, usually created by <code>{collect}</code>.</li>
+          </ul>
+
+          <h3>Ports and constants</h3>
+          <pre class="code-window"><code>name:value &gt;
+items:stream &gt;
+flag:signal &gt;
+values:bag &gt;
+
+&lt; result:value
+
+*42
+*"hello world"
+*true
+*false</code></pre>
+
+          <h3>Wires</h3>
+          <pre class="code-window"><code>Horizontal: ── or --
+Vertical:   │ or |
+Corners:    ┐ ┘ └ ┌
+Junctions:  ┤ ├ ┬ ┴ ┼ +
+Taps:       · or .</code></pre>
+          <p>Use monospace editing and keep alignment exact. GridFlo relies on character positions to trace connections.</p>
+
+          <h3>Transform cells</h3>
+          <pre class="code-window"><code>[trim] [upper] [lower] [str] [len] [reverse] [split] [!]
+[int] [float]
+[+1] [-5] [×2] [*2] [÷3] [/3] [%2] [^2]
+[+] [-] [×] [*] [÷] [/] [%] [^]</code></pre>
+
+          <h3>Comparisons and signals</h3>
+          <pre class="code-window"><code>[=5] [==5] [!=0] [≠0] [&gt;3] [&lt;10] [&gt;=60] [≤100]
+[?=0] [?!=0] [?&gt;5] [?&lt;10] [?&gt;=60] [?&lt;=100]</code></pre>
+
+          <h3>Gates</h3>
+          <p>The <code>?</code> cell routes based on a signal input. True goes right; false goes down.</p>
+          <pre class="code-window"><code>n:value &gt;──[%3]──[?=0]──?──[const:Fizz]──&lt; out:value
+                         │
+                         [str]───────────&lt; out:value</code></pre>
+
+          <h3>Streams, collect, and reduce</h3>
+          <pre class="code-window"><code>n:value &gt;──[range]──[map:double]──&lt; out:stream
+
+a:value &gt;──────────────┐
+                        {collect}──(avg)──&lt; average:value
+b:value &gt;──────────────┘</code></pre>
+          <p>
+            Reducers include <code>(sum)</code>, <code>(max)</code>, <code>(min)</code>,
+            <code>(count)</code>, <code>(avg)</code>, <code>(join)</code>, and
+            <code>(product)</code>.
+          </p>
+
+          <h3>Plates</h3>
+          <pre class="code-window"><code>plate shout:
+text:value &gt;──[trim]──[upper]──[!]──&lt; out:value
+end
+
+message:value &gt;──[shout]──&lt; result:value</code></pre>
+        </section>
+
+        <section class="doc-section" id="architecture">
+          <p class="eyebrow">Architecture</p>
+          <h2>Lexer to parser to interpreter</h2>
+          <pre class="code-window"><code>source text -&gt; lexer -&gt; parser -&gt; interpreter</code></pre>
+          <div class="feature-grid mini-grid">
+            <article>
+              <span class="feature-number">01</span>
+              <h3>Lexer</h3>
+              <p>Scans source text into positioned tokens, including wire characters.</p>
+            </article>
+            <article>
+              <span class="feature-number">02</span>
+              <h3>Parser</h3>
+              <p>Builds a spatial index, traces wires, creates cells, and validates types.</p>
+            </article>
+            <article>
+              <span class="feature-number">03</span>
+              <h3>Interpreter</h3>
+              <p>Executes the graph, fires ready cells, routes gates, and collects outputs.</p>
+            </article>
+          </div>
+        </section>
+
+        <section class="doc-section" id="workflow">
+          <p class="eyebrow">Development Workflow</p>
+          <h2>Checks before committing</h2>
+          <pre class="terminal-window"><code>python gridflow.py run "sample programs/hello.gf"
+python gridflow.py run "sample programs/grade.gf" score=75
+python gridflow.py run "sample programs/average.gf" a=40 b=60
+python gridflow.py run "sample programs/shout.gf" message=" hello "
+python gridflow.py check "sample programs/fizzbuzz.gf"
+python gridflow.py run "sample programs/fizzbuzz.gf" n=15
+python gridflow.py demo
+python -m py_compile gridflow.py lexer.py parser.py interpreter.py</code></pre>
+          <p>
+            If language syntax changes, update <code>lexer.py</code>, <code>parser.py</code>,
+            <code>interpreter.py</code>, change notes, and this documentation.
+          </p>
+        </section>
+
+        <section class="doc-section" id="troubleshooting">
+          <p class="eyebrow">Troubleshooting</p>
+          <h2>Common issues</h2>
+
+          <h3><code>Inputs: []</code> when you expected an input</h3>
+          <p>Make sure the input port has a <code>&gt;</code> marker.</p>
+          <pre class="code-window"><code>Correct:   n:value &gt;
+Incorrect: n:value</code></pre>
+
+          <h3>A wire does not connect</h3>
+          <ul class="doc-list">
+            <li>Horizontal wires should start at the cell's right edge.</li>
+            <li>Vertical wires should align under the source cell or branch point.</li>
+            <li>Corners should line up exactly with the path.</li>
+            <li>Edit in a monospace font.</li>
+          </ul>
+          <pre class="terminal-window"><code>python gridflow.py run file.gf --verbose</code></pre>
+
+          <h3>A gate does not take the expected branch</h3>
+          <p>
+            Make sure the gate receives a <code>signal</code>. Signal-producing
+            transforms start with <code>?</code>, for example <code>[?=0]</code>.
+          </p>
+
+          <h3><code>[map:&lt;plate&gt;]</code> fails during check</h3>
+          <p>Make sure the plate exists and the spelling matches exactly.</p>
+
+          <h3><code>scalar</code> type errors</h3>
+          <p>Use <code>value</code> instead of <code>scalar</code> in new <code>.gf</code> files.</p>
+
+          <h3>Current limitations</h3>
+          <ul class="doc-list">
+            <li>The language is experimental and intentionally small.</li>
+            <li>Wire tracing depends on exact character positions.</li>
+            <li>There is no package manager or module system.</li>
+            <li>The CLI prints Python-style representations of output values.</li>
+            <li>Error messages are basic and may point to graph rows rather than full source spans.</li>
+          </ul>
+        </section>
+      </article>
+    </div>
+  </main>
+
+  <footer class="site-footer">
+    <span>Built for the GridFlo language prototype.</span>
+    <a href="index.html">Back to landing page</a>
+  </footer>
+</body>
+</html>

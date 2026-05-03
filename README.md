@@ -50,13 +50,17 @@ GridFlo/
 ├── lexer.py          # Turns source text into positioned tokens
 ├── parser.py         # Builds and type-checks the cell graph
 ├── interpreter.py    # Executes the cell graph
-├── hello.gf          # Simple example program
-├── grade.gf          # Simple comparison example
-├── average.gf        # Collect and reduce example
-├── shout.gf          # Plate/sub-graph example
-├── fizzbuzz.gf       # Official FizzBuzz example
-├── CHANGES.md        # Human-readable change notes
-└── CLAUDE.md         # Agent/developer guidance
+├── sample programs/  # Runnable GridFlo example programs
+│   ├── hello.gf      # Simple example program
+│   ├── grade.gf      # Simple comparison example
+│   ├── average.gf    # Collect and reduce example
+│   ├── shout.gf      # Plate/sub-graph example
+│   └── fizzbuzz.gf   # Official FizzBuzz example
+└── landing page/     # Static website for the GridFlo project
+    ├── index.html    # Landing page
+    ├── docs.html     # README-style documentation page
+    ├── styles.css    # Shared page styling
+    └── script.js     # Landing page sample switcher
 ```
 
 ## Quick Start
@@ -64,7 +68,7 @@ GridFlo/
 Run the hello example:
 
 ```bash
-python gridflow.py run hello.gf
+python gridflow.py run "sample programs/hello.gf"
 ```
 
 Expected result:
@@ -76,7 +80,7 @@ output = 'GRIDFLO'
 Run FizzBuzz:
 
 ```bash
-python gridflow.py run fizzbuzz.gf n=15
+python gridflow.py run "sample programs/fizzbuzz.gf" n=15
 ```
 
 Expected result:
@@ -88,7 +92,7 @@ answer = ['1', '2', 'Fizz', '4', 'Buzz', 'Fizz', '7', '8', 'Fizz', 'Buzz', '11',
 Type-check a program without running it:
 
 ```bash
-python gridflow.py check fizzbuzz.gf
+python gridflow.py check "sample programs/fizzbuzz.gf"
 ```
 
 Run the built-in demos:
@@ -100,7 +104,31 @@ python gridflow.py demo
 Run with verbose execution output:
 
 ```bash
-python gridflow.py run fizzbuzz.gf n=15 --verbose
+python gridflow.py run "sample programs/fizzbuzz.gf" n=15 --verbose
+```
+
+## Landing Page
+
+The `landing page/` folder contains a small static website for GridFlo. It has a
+home page, a styled documentation page based on this README, and interactive
+sample tabs.
+
+Open it directly:
+
+```bash
+open "landing page/index.html"
+```
+
+Or serve it locally from the repository root:
+
+```bash
+python -m http.server 8000
+```
+
+Then visit:
+
+```text
+http://localhost:8000/landing%20page/
 ```
 
 ## Saved Example Programs
@@ -109,11 +137,11 @@ The repository includes five runnable `.gf` example programs:
 
 | File | Purpose | Example command |
 |---|---|---|
-| `hello.gf` | Simple string pipeline and two-input concatenation | `python gridflow.py run hello.gf` |
-| `grade.gf` | Simple comparison program | `python gridflow.py run grade.gf score=75` |
-| `average.gf` | Collects two inputs and reduces them with `(avg)` | `python gridflow.py run average.gf a=40 b=60` |
-| `shout.gf` | Uses a reusable `plate` to trim, uppercase, and add `!` | `python gridflow.py run shout.gf message=" hello "` |
-| `fizzbuzz.gf` | Complex stream/map FizzBuzz program | `python gridflow.py run fizzbuzz.gf n=15` |
+| `sample programs/hello.gf` | Simple string pipeline and two-input concatenation | `python gridflow.py run "sample programs/hello.gf"` |
+| `sample programs/grade.gf` | Simple comparison program | `python gridflow.py run "sample programs/grade.gf" score=75` |
+| `sample programs/average.gf` | Collects two inputs and reduces them with `(avg)` | `python gridflow.py run "sample programs/average.gf" a=40 b=60` |
+| `sample programs/shout.gf` | Uses a reusable `plate` to trim, uppercase, and add `!` | `python gridflow.py run "sample programs/shout.gf" message=" hello "` |
+| `sample programs/fizzbuzz.gf` | Complex stream/map FizzBuzz program | `python gridflow.py run "sample programs/fizzbuzz.gf" n=15` |
 
 ## Command Reference
 
@@ -126,11 +154,11 @@ python gridflow.py run <file.gf> [key=value ...]
 Examples:
 
 ```bash
-python gridflow.py run hello.gf
-python gridflow.py run grade.gf score=75
-python gridflow.py run average.gf a=40 b=60
-python gridflow.py run shout.gf message=" hello "
-python gridflow.py run fizzbuzz.gf n=15
+python gridflow.py run "sample programs/hello.gf"
+python gridflow.py run "sample programs/grade.gf" score=75
+python gridflow.py run "sample programs/average.gf" a=40 b=60
+python gridflow.py run "sample programs/shout.gf" message=" hello "
+python gridflow.py run "sample programs/fizzbuzz.gf" n=15
 python gridflow.py run my_program.gf name=Mateo score=75
 ```
 
@@ -552,7 +580,7 @@ How it works:
 Run it:
 
 ```bash
-python gridflow.py run fizzbuzz.gf n=15
+python gridflow.py run "sample programs/fizzbuzz.gf" n=15
 ```
 
 ## Architecture
@@ -618,12 +646,12 @@ The interpreter also supports:
 Recommended checks before committing changes:
 
 ```bash
-python gridflow.py run hello.gf
-python gridflow.py run grade.gf score=75
-python gridflow.py run average.gf a=40 b=60
-python gridflow.py run shout.gf message=" hello "
-python gridflow.py check fizzbuzz.gf
-python gridflow.py run fizzbuzz.gf n=15
+python gridflow.py run "sample programs/hello.gf"
+python gridflow.py run "sample programs/grade.gf" score=75
+python gridflow.py run "sample programs/average.gf" a=40 b=60
+python gridflow.py run "sample programs/shout.gf" message=" hello "
+python gridflow.py check "sample programs/fizzbuzz.gf"
+python gridflow.py run "sample programs/fizzbuzz.gf" n=15
 python gridflow.py demo
 python -m py_compile gridflow.py lexer.py parser.py interpreter.py
 ```
